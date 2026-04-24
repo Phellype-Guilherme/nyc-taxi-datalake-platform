@@ -18,7 +18,7 @@ A plataforma é capaz de:
 
 O diagrama abaixo descreve o fluxo end-to-end dos dados, desde a ingestão das corridas no Kafka até a visualização no dashboard React:
 
-![Arquitetura NYC Taxi Data Lake](/dash/src/assets//ArchPlatform.jpg)
+![Arquitetura NYC Taxi Data Lake](../dash/src/assets//ArchPlatform.jpg)
 
 **Fluxo resumido:**
 
