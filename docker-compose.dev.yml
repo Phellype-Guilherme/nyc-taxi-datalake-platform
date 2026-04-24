@@ -1,0 +1,37 @@
+# Override de DEV — builda os microserviços a partir dos repos vizinhos
+services:
+
+  trip-producer:
+    build: ../nyc-taxi-trip-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ./data:/data:ro
+    restart: "no"   # 👈 garante que reinicia se cair
+
+  trip-consumer:
+    build: ../nyc-taxi-trip-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+    env_file: .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      S3_ENDPOINT: http://localstack:4566
+      KAFKA_TOPIC_TRIPS: taxi-trips
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      S3_BUCKET: nyc-taxi-datalake
+      S3_RAW_PREFIX: raw/taxi-trips
+      TRIP_FILTER_DATE_START: "2009-01-01"
+      TRIP_FILTER_DATE_END: "2015-06-30"
+      TRIP_FILTER_BBOX: "-74.05,40.63,-73.75,40.85"
+    restart: "no"
+
