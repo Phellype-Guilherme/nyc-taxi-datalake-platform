@@ -1,0 +1,125 @@
+# Infra base — Kafka (KRaft), LocalStack, Airflow
+services:
+
+  kafka:
+    image: apache/kafka:3.7.1
+    container_name: kafka
+    hostname: kafka
+    environment:
+      # KRaft mode (sem Zookeeper) — variáveis da imagem oficial apache/kafka
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
+    ports:
+      - "9094:9094"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "8081:8080"
+
+  localstack:
+    image: localstack/localstack:3
+    container_name: localstack
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./localstack/init-s3.sh:/etc/localstack/init/ready.d/init-s3.sh
+
+  airflow:
+    image: apache/airflow:2.9.2-python3.11
+    container_name: airflow
+    depends_on:
+      localstack:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      iceberg-rest:
+        condition: service_started
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      S3_ENDPOINT: http://localstack:4566
+      # NOVO — catálogo Iceberg + bucket do datalake
+      ICEBERG_CATALOG_URI: http://iceberg-rest:8181
+      S3_BUCKET: nyc-taxi-datalake
+      S3_RAW_PREFIX: raw/taxi-trips
+    ports:
+      - "8080:8080"
+    # NOVO — adicionado pyiceberg + pyarrow + requests (duckdb e boto3 você já tinha)
+    command: bash -c "pip install duckdb boto3 pyiceberg[s3fs,pyarrow] pyarrow requests && airflow standalone"
+    volumes:
+      -   ../nyc-taxi-analytics-pipelines/airflow/dags:/opt/airflow/dags
+
+
+  # -------- NOVO serviço: catálogo Iceberg REST --------
+  iceberg-rest:
+    image: tabulario/iceberg-rest:1.5.0
+    container_name: iceberg-rest
+    depends_on:
+      localstack:
+        condition: service_started
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://nyc-taxi-datalake/warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://localstack:4566
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+    ports:
+      - "8181:8181"
+
+  # -------- NOVO serviço: dashboard React --------
+  dash:
+    build: ../nyc-taxi-analytics-pipelines/dash
+    container_name: dash
+    depends_on:
+      localstack:
+        condition: service_started
+    ports:
+      - "8090:80"
+    environment:
+      S3_ENDPOINT: http://localstack:4566
+      S3_BUCKET: nyc-taxi-datalake
+
+volumes:
+  kafka_data:

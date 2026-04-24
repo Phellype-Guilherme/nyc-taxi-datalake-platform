@@ -1,0 +1,11 @@
+# Override de "prod local" — puxa imagens prontas do GHCR
+services:
+  trip-producer:
+    image: ghcr.io/SEU-USER/nyc-taxi-trip-producer:latest
+    depends_on: [kafka]
+    env_file: .env
+
+  trip-consumer:
+    image: ghcr.io/SEU-USER/nyc-taxi-trip-consumer:latest
+    depends_on: [kafka, localstack]
+    env_file: .env
